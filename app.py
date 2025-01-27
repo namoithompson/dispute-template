@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import os
+import requests  # Import requests for making HTTP POST requests
 
 app = Flask(__name__)
 
@@ -20,6 +21,9 @@ Sincerely,
 
 [Your Firm Name or Signature]
 """
+
+# Your Make webhook URL
+MAKE_WEBHOOK_URL = "https://hook.eu2.make.com/ahjep7qn8dma6kijswv0fw3rns4rcecz"
 
 @app.route("/merge-template", methods=["POST"])
 def merge_template():
@@ -59,7 +63,23 @@ def merge_template():
         breaches=combined_breaches
     )
 
-    return jsonify({"dispute_letter": dispute_letter}), 200
+    # Prepare the payload to send to Make webhook
+    payload = {
+        "client_name": f"{first_name} {last_name}",
+        "dispute_letter": dispute_letter,
+        "breaches": breach_list,
+        "client_explanation": client_explanation
+    }
+
+    # Send data to Make webhook
+    try:
+        response = requests.post(MAKE_WEBHOOK_URL, json=payload)
+        if response.status_code == 200:
+            return jsonify({"message": "Dispute letter generated and sent to Make successfully.", "dispute_letter": dispute_letter}), 200
+        else:
+            return jsonify({"message": "Dispute letter generated but failed to send to Make.", "error": response.text}), 500
+    except Exception as e:
+        return jsonify({"message": "Dispute letter generated but failed to send to Make.", "error": str(e)}), 500
 
 if __name__ == "__main__":
     # Run locally on port 5000 (for development)
