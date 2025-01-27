@@ -3,8 +3,7 @@ import os
 
 app = Flask(__name__)
 
-# Your static letter template
-# We'll use placeholders like {first_name}, {last_name}, and {breaches}.
+# Your static letter template (no AI)
 LETTER_TEMPLATE = """I am writing to dispute the default listed on the credit file of my client, {first_name} {last_name}.
 The client has explained the following circumstances:
 
@@ -28,24 +27,22 @@ def merge_template():
         return jsonify({"error": "Request must be JSON"}), 400
 
     data = request.get_json()
-
-    # The structure you provided has 'original' with subfields
     original = data.get("original", {})
 
     # Extract name
     names = original.get("names", {})
-    first_name = names.get("first_name", "Unknown").strip()
-    last_name = names.get("last_name", "Unknown").strip()
+    first_name = names.get("first_name", "").strip()
+    last_name = names.get("last_name", "").strip()
 
-    # Extract client explanation (e.g., from 'post_content' or some other field)
+    # Extract explanation (from 'post_content' or any field you prefer)
     client_explanation = original.get("post_content", "").strip()
 
-    # Gather all non-empty description_ fields
+    # Gather all non-empty "description_" fields for breaches
     breach_list = []
     for key, value in original.items():
         if key.startswith("description_"):
             val = value.strip()
-            if val:  # only add if not empty
+            if val:
                 breach_list.append(val)
 
     # Join them with a newline or bullet points
@@ -54,16 +51,16 @@ def merge_template():
     else:
         combined_breaches = "No specific breaches identified."
 
-    # Now merge into the template
-    letter_text = LETTER_TEMPLATE.format(
+    # Merge into the template
+    dispute_letter = LETTER_TEMPLATE.format(
         first_name=first_name,
         last_name=last_name,
         client_explanation=client_explanation,
         breaches=combined_breaches
     )
 
-    return jsonify({"dispute_letter": letter_text}), 200
+    return jsonify({"dispute_letter": dispute_letter}), 200
 
 if __name__ == "__main__":
-    # For local testing
+    # Run locally on port 5000 (for development)
     app.run(host="0.0.0.0", port=5000)
