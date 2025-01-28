@@ -1,10 +1,16 @@
 from flask import Flask, request, jsonify
 import os
-import requests  # Import requests for making HTTP POST requests
+import requests
+import logging
 
+# Initialize Flask app
 app = Flask(__name__)
 
-# Your static letter template (no AI)
+# Logging configuration
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Static letter template
 LETTER_TEMPLATE = """I am writing to dispute the default listed on the credit file of my client, {first_name} {last_name}.
 The client has explained the following circumstances:
 
@@ -22,40 +28,39 @@ Sincerely,
 [Your Firm Name or Signature]
 """
 
-# Your Make webhook URL
-MAKE_WEBHOOK_URL = "https://hook.eu2.make.com/ahjep7qn8dma6kijswv0fw3rns4rcecz"
+# Make webhook URL
+MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL", "https://hook.eu2.make.com/ahjep7qn8dma6kijswv0fw3rns4rcecz")
 
 @app.route("/merge-template", methods=["POST"])
 def merge_template():
+    # Validate JSON payload
     if not request.is_json:
+        logger.error("Request is not JSON")
         return jsonify({"error": "Request must be JSON"}), 400
 
     data = request.get_json()
     original = data.get("original", {})
 
-    # Extract name
+    # Validate required fields
+    required_fields = ["names", "post_content"]
+    missing_fields = [field for field in required_fields if not original.get(field)]
+    if missing_fields:
+        logger.error(f"Missing required fields: {', '.join(missing_fields)}")
+        return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400
+
+    # Extract fields
     names = original.get("names", {})
     first_name = names.get("first_name", "").strip()
     last_name = names.get("last_name", "").strip()
-
-    # Extract explanation (from 'post_content' or any field you prefer)
     client_explanation = original.get("post_content", "").strip()
 
-    # Gather all non-empty "description_" fields for breaches
-    breach_list = []
-    for key, value in original.items():
-        if key.startswith("description_"):
-            val = value.strip()
-            if val:
-                breach_list.append(val)
+    # Validate breaches
+    breach_list = [
+        value.strip() for key, value in original.items() if key.startswith("description_") and value.strip()
+    ]
+    combined_breaches = "\n- " + "\n- ".join(breach_list) if breach_list else "No specific breaches identified."
 
-    # Join them with a newline or bullet points
-    if breach_list:
-        combined_breaches = "\n- " + "\n- ".join(breach_list)
-    else:
-        combined_breaches = "No specific breaches identified."
-
-    # Merge into the template
+    # Generate dispute letter
     dispute_letter = LETTER_TEMPLATE.format(
         first_name=first_name,
         last_name=last_name,
@@ -63,7 +68,7 @@ def merge_template():
         breaches=combined_breaches
     )
 
-    # Prepare the payload to send to Make webhook
+    # Prepare payload
     payload = {
         "client_name": f"{first_name} {last_name}",
         "dispute_letter": dispute_letter,
@@ -72,15 +77,18 @@ def merge_template():
     }
 
     # Send data to Make webhook
-    try:
-        response = requests.post(MAKE_WEBHOOK_URL, json=payload)
-        if response.status_code == 200:
-            return jsonify({"message": "Dispute letter generated and sent to Make successfully.", "dispute_letter": dispute_letter}), 200
-        else:
-            return jsonify({"message": "Dispute letter generated but failed to send to Make.", "error": response.text}), 500
-    except Exception as e:
-        return jsonify({"message": "Dispute letter generated but failed to send to Make.", "error": str(e)}), 500
+    for attempt in range(3):  # Retry logic
+        try:
+            response = requests.post(MAKE_WEBHOOK_URL, json=payload, timeout=10)
+            if response.status_code == 200:
+                logger.info("Dispute letter sent successfully")
+                return jsonify({"message": "Dispute letter generated and sent to Make successfully.", "dispute_letter": dispute_letter}), 200
+            else:
+                logger.error(f"Make webhook failed: {response.status_code} {response.text}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error sending to Make webhook: {e}")
+        if attempt == 2:  # Final attempt failed
+            return jsonify({"error": "Failed to send data to Make after multiple attempts."}), 500
 
 if __name__ == "__main__":
-    # Run locally on port 5000 (for development)
     app.run(host="0.0.0.0", port=5000)
