@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import os
 import requests
 import logging
-import json  # Import json for logging structured data
+import json
 
 app = Flask(__name__)
 
@@ -40,12 +40,13 @@ def merge_template():
     data = request.get_json()
     logger.info(f"Received payload: {json.dumps(data, indent=2)}")  # Log raw payload for debugging
 
-    original = data.get("original", {})
+    # Determine if the payload has an 'original' wrapper or not
+    original = data.get("original", data)  # Use entire payload if 'original' is missing
 
     # Validate required fields
     if not original:
-        logger.error("No 'original' data found in payload.")
-        return jsonify({"error": "Missing 'original' data in request."}), 400
+        logger.error("Payload is empty or missing expected fields.")
+        return jsonify({"error": "Received empty payload."}), 400
 
     # Extract name (Handles Fluent Forms variations)
     names = original.get("names") or {}
